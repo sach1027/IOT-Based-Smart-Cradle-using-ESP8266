@@ -1,1 +1,219 @@
+/***************************************************************************************************************
+ *  Smart Cradle using NodeMCU ESP-12 Develop Kit V1.0
+ *  Sensor data sent to Blynk app
+ *  Downloads, docs, tutorials: http://www.blynk.cc
+ *  Blynk library is licensed under MIT license
+ *  Input Sensor :Sound sensor
+ *               :Water Sensor
+ *               :PIR sensor
+ *               :Temperature and humidity sensor
+ *  Actuators    :Buzzer module             
+ *               :Servo Motor 
+ *  Version 2.0.0 Blynk&TS - Developed by Sachin 
+ *  Date : 29-05-2021 
+ *****************************************************************************************************************/
+/* ESP 8266 Library*/
+#include <ESP8266WiFi.h> 
+WiFiClient client;
 
+/*blynk library */
+#include <BlynkSimpleEsp8266.h>
+char auth[] = "xxxxxxxxxxxxxxxx"; //Place your Blynk applications project token code 
+char ssid[] = "ABCD";// Hotspot / wifi name
+char pass[] = "Airtel@123";// Password
+
+#include <Servo.h>   // Include the library
+Servo servo1;        // Create the Servo and name it "servo1"
+#define servo1Pin D8 // Define the NodeMCU pin D8 to attach the Servo
+
+/* DHT11*/
+#include "DHT.h"
+#define DHTPIN D0 // DHT 11 : Temperature & humidity sensor connected to digital pin D0
+#define DHTTYPE DHT11 // Sensor type : DHT11
+DHT dht(DHTPIN, DHTTYPE); // Send DHT pin and type parameter to DHT Function 
+float hum = 0; /* at init humidity is 0 */
+float temp = 0;/* at init temp is 0*/
+
+/* TIMER Library*/
+#include <SimpleTimer.h>
+SimpleTimer timer;
+
+#define PirSensorPin   D1 // PIR Sensor connected to digital pin D1
+#define Watersensor    D2 // Water/Wet sensor to Digital pin D2
+#define SoundSensorPin A0 // Analog sound sensor to Analog input in A0
+#define Buzzer  D3 // Buzzer to digital pin D3
+int PIR_Sensor   = 0; 
+int Water_Sensor = 0;
+int Sound_Level  = 0;
+
+/*Define Macros with virtual PIN for Blynk Widgets */
+#define All_Auto        V5 
+#define Servo_Manual    V6 
+#define Servo_Angle     V7
+#define Servo_Delay     V8
+#define Sound_Threshold V9
+/*init condition as 0 */
+int All_Auto_State         = 0;
+int Servo_Manual_State     = 0;
+int Servo_Angle_input      = 0;
+int Servo_Delay_input      = 0;
+int Sound_Thrshold_input   = 0;
+
+// Request the latest state from the server
+BLYNK_CONNECTED() 
+{
+  Blynk.syncVirtual(All_Auto);
+  Blynk.syncVirtual(Servo_Manual);
+  Blynk.syncVirtual(Servo_Angle);
+  Blynk.syncVirtual(Servo_Delay);
+  Blynk.syncVirtual(Sound_Threshold);
+}
+
+// sync the recieved data from application to variables
+BLYNK_WRITE(All_Auto) 
+{
+  All_Auto_State = param.asInt();
+}
+
+BLYNK_WRITE(Servo_Manual) 
+{
+  Servo_Manual_State = param.asInt();
+}
+
+BLYNK_WRITE(Servo_Angle) 
+{
+  Servo_Angle_input = param.asInt();
+}
+
+BLYNK_WRITE(Servo_Delay) 
+{
+  Servo_Delay_input = param.asInt();
+}
+
+BLYNK_WRITE(Sound_Threshold) 
+{
+  Sound_Thrshold_input = param.asInt();
+}
+
+
+void setup()
+{
+   Serial.begin(115200);
+   delay(10);
+   servo1.attach(servo1Pin);
+   Blynk.begin(auth, ssid, pass);
+   pinMode(Buzzer, OUTPUT);
+   pinMode(servo1Pin, OUTPUT);
+   
+   pinMode(DHTPIN, INPUT);
+   pinMode(SoundSensorPin, INPUT);
+   pinMode(Watersensor, INPUT);
+   pinMode(PirSensorPin, INPUT);
+   servo1.write(0);
+   dht.begin();
+   timer.setInterval(2000L, getInputData);
+   timer.setInterval(4000L, sendUptime);
+}
+
+void loop()
+{
+   if (All_Auto_State == 1 &&  Servo_Manual_State == 0)
+  {    
+  AutomateAll();
+  }
+   if (All_Auto_State == 0 && Servo_Manual_State == 1)
+  {
+  Run_Servo();
+  }
+
+  if (Water_Sensor == 1)
+   {
+
+  Blynk.notify("Wet Detected !!!"); 
+  Serial.println("Wet Detected !!!"); 
+  tone(Buzzer,1);  
+  delay(2000);
+  noTone(Buzzer);
+  tone(Buzzer,0);
+  }
+
+  timer.run(); // Initiates SimpleTimer
+  Blynk.run(); // Initiates Blynk server
+
+}
+
+void AutomateAll()
+{
+  Serial.println("Automate all !!!"); 
+  if(PIR_Sensor == 1 & Sound_Level >= Sound_Thrshold_input)
+  {
+    Run_Servo();
+    Blynk.notify("sound and movement Detected !!!");
+    Serial.println("sound and movement Detected Run servo !!!"); 
+  }
+  
+  else if (Water_Sensor == 1)
+      {
+   Blynk.notify("Wet Detected !!!"); 
+  Serial.println("Wet Detected !!!"); 
+  tone(Buzzer,1);  
+  delay(2000);
+  noTone(Buzzer);
+  tone(Buzzer,0);
+    }
+}
+
+void Run_Servo()
+
+{
+    Serial.println("Run servo !!!");
+    servo1.write(Servo_Angle_input);
+    delay(Servo_Delay_input);
+    servo1.write(0);
+    delay(Servo_Delay_input);
+    servo1.write(Servo_Angle_input);
+  
+}
+
+
+void getInputData(void)
+{ 
+
+  float tempIni  = temp;
+  float humIni   = hum;
+  temp           = dht.readTemperature();
+  hum            = dht.readHumidity();
+  Water_Sensor   = !digitalRead(Watersensor); /*Wet sensor is Active high , so it is inverted */
+  Sound_Level    = analogRead(SoundSensorPin);
+  PIR_Sensor     = digitalRead(PirSensorPin);
+  Serial.print("Water_Sensor: ");
+  Serial.println(Water_Sensor);
+  Serial.print("Sound_Level: ");
+  Serial.println(Sound_Level);
+  Serial.print("PIR_Sensor: ");
+  Serial.println(PIR_Sensor);
+  
+  
+ /* if (isnan(hum) || isnan(temp))   // Check if any reads failed and exit early (to try again).
+  {
+    Serial.println("Failed to read from DHT sensor!");
+    temp = tempIni;
+    hum = humIni;
+    return;
+  }  */
+}
+
+/***************************************************
+ * Send DHT data to Blynk
+ **************************************************/
+void sendUptime()
+{
+  // You can send any value at any time.
+  // Please don't send more that 10 values per second.
+  Blynk.virtualWrite(00, temp); //virtual pin V00
+  Blynk.virtualWrite(01, hum); // virtual pin V01
+ // Blynk.virtualWrite(04, PIR_Sensor);
+ // Blynk.virtualWrite(02, Sound_Level);
+  //Blynk.virtualWrite(03, Water_Sensor);
+  
+}
